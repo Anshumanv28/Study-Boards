@@ -1,0 +1,120 @@
+/* Theme Switcher Styles */
+.theme-switcher {
+  position: relative;
+  display: inline-block;
+}
+
+.theme-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  color: var(--text-primary);
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.theme-toggle:hover {
+  background: var(--secondary-light);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px var(--card-shadow);
+}
+
+.theme-icon {
+  font-size: 16px;
+}
+
+.theme-label {
+  font-weight: 500;
+}
+
+.dropdown-arrow {
+  font-size: 10px;
+  transition: transform 0.3s ease;
+}
+
+.dropdown-arrow.open {
+  transform: rotate(180deg);
+}
+
+.theme-dropdown {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  margin-top: 8px;
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: 8px;
+  box-shadow: 0 8px 25px var(--card-shadow);
+  z-index: 1000;
+  min-width: 140px;
+  overflow: hidden;
+  animation: slideUp 0.2s ease-out;
+}
+
+.theme-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  color: var(--text-primary);
+  border-bottom: 1px solid var(--card-border);
+}
+
+.theme-option:last-child {
+  border-bottom: none;
+}
+
+.theme-option:hover {
+  background: var(--secondary-light);
+}
+
+.theme-option .theme-icon {
+  font-size: 16px;
+  margin-right: 8px;
+}
+
+.theme-option .theme-name {
+  flex: 1;
+  font-weight: 500;
+}
+
+.theme-option .checkmark {
+  color: var(--secondary-lighter);
+  font-weight: bold;
+  font-size: 14px;
+}
+
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  .theme-toggle {
+    padding: 6px 10px;
+    font-size: 13px;
+  }
+  
+  .theme-label {
+    display: none;
+  }
+  
+  .theme-dropdown {
+    min-width: 120px;
+  }
+}
