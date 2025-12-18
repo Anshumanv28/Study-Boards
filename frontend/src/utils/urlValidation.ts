@@ -9,7 +9,7 @@
  * Prevents javascript: and other dangerous protocols
  */
 export function isValidUrl(url: string | null | undefined): boolean {
-  if (!url || typeof url !== 'string') {
+  if (!url || typeof url !== "string") {
     return false;
   }
 
@@ -18,23 +18,24 @@ export function isValidUrl(url: string | null | undefined): boolean {
     const protocol = parsedUrl.protocol.toLowerCase();
 
     // Only allow safe protocols
-    const allowedProtocols = ['http:', 'https:', 'data:'];
+    const allowedProtocols = ["http:", "https:", "data:"];
     if (!allowedProtocols.includes(protocol)) {
-      console.warn('Blocked unsafe URL protocol:', protocol);
+      console.warn("Blocked unsafe URL protocol:", protocol);
       return false;
     }
 
     // Block javascript: and other dangerous protocols
-    if (url.toLowerCase().trim().startsWith('javascript:')) {
-      console.warn('Blocked javascript: URL');
+    if (url.toLowerCase().trim().startsWith("javascript:")) {
+      console.warn("Blocked javascript: URL");
       return false;
     }
 
     // For data URLs, only allow safe MIME types
-    if (protocol === 'data:') {
-      const dataUrlPattern = /^data:(image|application\/pdf|video)\/[^;]+;base64,/i;
+    if (protocol === "data:") {
+      const dataUrlPattern =
+        /^data:(image|application\/pdf|video)\/[^;]+;base64,/i;
       if (!dataUrlPattern.test(url)) {
-        console.warn('Blocked unsafe data URL');
+        console.warn("Blocked unsafe data URL");
         return false;
       }
     }
@@ -42,7 +43,7 @@ export function isValidUrl(url: string | null | undefined): boolean {
     return true;
   } catch (error) {
     // Invalid URL format
-    console.warn('Invalid URL format:', url);
+    console.warn("Invalid URL format:", url);
     return false;
   }
 }
@@ -51,22 +52,23 @@ export function isValidUrl(url: string | null | undefined): boolean {
  * Safely opens a URL in a new window/tab
  * Validates the URL before opening
  */
-export function safeOpenUrl(url: string | null | undefined, target: string = '_blank'): boolean {
+export function safeOpenUrl(
+  url: string | null | undefined,
+  target: string = "_blank"
+): boolean {
   if (!isValidUrl(url)) {
-    console.error('Attempted to open invalid URL:', url);
+    console.error("Attempted to open invalid URL:", url);
     return false;
   }
 
-  // At this point, we know url is valid (not null/undefined) due to isValidUrl check
-  if (!url) {
-    return false;
-  }
+  // Type narrowing: isValidUrl ensures url is a non-empty string
+  const validUrl: string = url as string;
 
   try {
-    window.open(url, target, 'noopener,noreferrer');
+    window.open(validUrl, target, "noopener,noreferrer");
     return true;
   } catch (error) {
-    console.error('Error opening URL:', error);
+    console.error("Error opening URL:", error);
     return false;
   }
 }
@@ -83,21 +85,21 @@ export function isAllowedDomain(
     return false;
   }
 
-  // At this point, we know url is valid (not null/undefined) due to isValidUrl check
-  if (!url) {
-    return false;
-  }
+  // Type narrowing: isValidUrl ensures url is a non-empty string
+  const validUrl: string = url as string;
 
   try {
-    const parsedUrl = new URL(url, window.location.origin);
+    const parsedUrl = new URL(validUrl, window.location.origin);
     const hostname = parsedUrl.hostname.toLowerCase();
 
     return allowedDomains.some((domain) => {
-      const normalizedDomain = domain.toLowerCase().replace(/^https?:\/\//, '');
-      return hostname === normalizedDomain || hostname.endsWith('.' + normalizedDomain);
+      const normalizedDomain = domain.toLowerCase().replace(/^https?:\/\//, "");
+      return (
+        hostname === normalizedDomain ||
+        hostname.endsWith("." + normalizedDomain)
+      );
     });
   } catch (error) {
     return false;
   }
 }
-
