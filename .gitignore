@@ -102,6 +102,7 @@ docker-compose*
 # Deployment documentation (temporary files)
 DEPLOYMENT_READINESS_CHECKLIST.md
 VERCEL_DEPLOYMENT_READY.md
+SECURITY_ASSESSMENT.md
 
 # Supabase migrations and documentation
 # supabase/

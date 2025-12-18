@@ -10,6 +10,7 @@ import {
   UserProgress,
 } from "../services/boardsDatabaseService";
 import { useAuth } from "../contexts/AuthContext";
+import { safeOpenUrl } from "../utils/urlValidation";
 import PDFViewer from "./PDFViewer";
 
 interface PDFListProps {
@@ -111,8 +112,8 @@ const PDFList: React.FC<PDFListProps> = ({
     if (file.type === "pdf") {
       setSelectedPDF(file as S3PDFFile);
     } else {
-      // For DOCX files, open in new tab for download
-      window.open(file.url, "_blank");
+      // For DOCX files, open in new tab for download (with URL validation)
+      safeOpenUrl(file.url, "_blank");
     }
   };
 
@@ -132,7 +133,8 @@ const PDFList: React.FC<PDFListProps> = ({
         setSelectedPDF(pdfFile);
       }
     } else if (content.content_type === "video" && content.video_url) {
-      window.open(content.video_url, "_blank");
+      // Safely open video URL with validation
+      safeOpenUrl(content.video_url, "_blank");
     }
   };
 
