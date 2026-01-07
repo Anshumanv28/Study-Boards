@@ -11,6 +11,7 @@ import {
 } from "../services/boardsDatabaseService";
 import { useAuth } from "../contexts/AuthContext";
 import { safeOpenUrl } from "../utils/urlValidation";
+import { downloadWithWatermark } from "../services/watermarkService";
 import PDFViewer from "./PDFViewer";
 
 interface PDFListProps {
@@ -36,6 +37,7 @@ const PDFList: React.FC<PDFListProps> = ({
   const [error, setError] = useState<string | null>(null);
   const [selectedPDF, setSelectedPDF] = useState<S3PDFFile | null>(null);
   const [searchTerm, setSearchTerm] = useState("");
+  const [watermarkingFile, setWatermarkingFile] = useState<string | null>(null);
 
   useEffect(() => {
     loadFiles();
@@ -108,12 +110,21 @@ const PDFList: React.FC<PDFListProps> = ({
         content.description.toLowerCase().includes(searchTerm.toLowerCase()))
   );
 
-  const handleFileClick = (file: S3File) => {
+  const handleFileClick = async (file: S3File) => {
     if (file.type === "pdf") {
       setSelectedPDF(file as S3PDFFile);
     } else {
-      // For DOCX files, open in new tab for download (with URL validation)
-      safeOpenUrl(file.url, "_blank");
+      // For DOCX files, download with watermark
+      try {
+        setWatermarkingFile(file.name);
+        await downloadWithWatermark(file.url, file.name, "docx");
+      } catch (error) {
+        console.error("Error downloading DOCX with watermark:", error);
+        // Fallback to direct download if watermarking fails
+        safeOpenUrl(file.url, "_blank");
+      } finally {
+        setWatermarkingFile(null);
+      }
     }
   };
 
@@ -464,7 +475,7 @@ const PDFList: React.FC<PDFListProps> = ({
                         {awsS3PdfService.formatDate(file.lastModified)}
                       </span>
                     </div>
-                    <div className="mt-1">
+                    <div className="mt-1 flex items-center space-x-2">
                       <span
                         className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
                           file.type === "pdf"
@@ -474,6 +485,12 @@ const PDFList: React.FC<PDFListProps> = ({
                       >
                         {file.type.toUpperCase()}
                       </span>
+                      {watermarkingFile === file.name && (
+                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
+                          <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-yellow-600 mr-1"></div>
+                          Adding Watermark...
+                        </span>
+                      )}
                     </div>
                   </div>
                   <div className="flex-shrink-0">

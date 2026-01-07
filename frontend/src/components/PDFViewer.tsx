@@ -1,5 +1,6 @@
-import React, { useState, useRef, useEffect } from 'react';
-import { S3PDFFile } from '../services/awsS3PdfService';
+import React, { useState, useRef, useEffect } from "react";
+import { S3PDFFile } from "../services/awsS3PdfService";
+import { downloadWithWatermark } from "../services/watermarkService";
 
 interface PDFViewerProps {
   pdf: S3PDFFile;
@@ -7,11 +8,14 @@ interface PDFViewerProps {
   className?: string;
 }
 
-const PDFViewer: React.FC<PDFViewerProps> = ({ pdf, onClose, className = '' }) => {
+const PDFViewer: React.FC<PDFViewerProps> = ({
+  pdf,
+  onClose,
+  className = "",
+}) => {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  // Note: currentPage and totalPages are reserved for future PDF.js integration
-  const [scale, setScale] = useState(1);
+  const [isWatermarking, setIsWatermarking] = useState(false);
   const iframeRef = useRef<HTMLIFrameElement>(null);
 
   useEffect(() => {
@@ -19,124 +23,167 @@ const PDFViewer: React.FC<PDFViewerProps> = ({ pdf, onClose, className = '' }) =
     setError(null);
   }, [pdf.url]);
 
+  // Prevent right-click and other download methods
+  useEffect(() => {
+    const preventDownload = (e: MouseEvent) => {
+      // Prevent right-click context menu
+      if (e.button === 2) {
+        e.preventDefault();
+        return false;
+      }
+    };
+
+    const preventContextMenu = (e: Event) => {
+      e.preventDefault();
+      return false;
+    };
+
+    const preventKeyboardDownload = (e: KeyboardEvent) => {
+      // Prevent Ctrl+S, Ctrl+P, etc.
+      if (
+        (e.ctrlKey || e.metaKey) &&
+        (e.key === "s" || e.key === "p" || e.key === "S" || e.key === "P")
+      ) {
+        e.preventDefault();
+        // Show message that they should use the download button
+        alert(
+          "Please use the Download button above to download this PDF with watermark."
+        );
+        return false;
+      }
+    };
+
+    // Add event listeners
+    document.addEventListener("contextmenu", preventContextMenu);
+    document.addEventListener("mousedown", preventDownload);
+    document.addEventListener("keydown", preventKeyboardDownload);
+
+    // Cleanup
+    return () => {
+      document.removeEventListener("contextmenu", preventContextMenu);
+      document.removeEventListener("mousedown", preventDownload);
+      document.removeEventListener("keydown", preventKeyboardDownload);
+    };
+  }, []);
+
   const handleLoad = () => {
     setIsLoading(false);
   };
 
   const handleError = () => {
     setIsLoading(false);
-    setError('Failed to load PDF. Please try again.');
+    setError("Failed to load PDF. Please try again.");
   };
 
-  const handleZoomIn = () => {
-    setScale(prev => Math.min(prev + 0.25, 3));
-  };
-
-  const handleZoomOut = () => {
-    setScale(prev => Math.max(prev - 0.25, 0.5));
-  };
-
-  const handleResetZoom = () => {
-    setScale(1);
-  };
-
-  const downloadPDF = () => {
-    const link = document.createElement('a');
-    link.href = pdf.url;
-    link.download = pdf.name;
-    link.target = '_blank';
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+  const handleDownload = async () => {
+    try {
+      setIsWatermarking(true);
+      await downloadWithWatermark(pdf.url, pdf.name, "pdf");
+    } catch (error) {
+      console.error("Error downloading PDF with watermark:", error);
+      setError("Failed to download PDF. Please try again.");
+    } finally {
+      setIsWatermarking(false);
+    }
   };
 
   return (
-    <div className={`fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 ${className}`}>
-      <div className="bg-white rounded-lg shadow-xl max-w-6xl w-full mx-4 max-h-[90vh] flex flex-col">
-        {/* Header */}
-        <div className="flex items-center justify-between p-4 border-b border-gray-200">
-          <div className="flex items-center space-x-3">
-            <div className="w-8 h-8 bg-red-100 rounded-lg flex items-center justify-center">
-              <svg className="w-5 h-5 text-red-600" fill="currentColor" viewBox="0 0 20 20">
-                <path fillRule="evenodd" d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4zm2 6a1 1 0 011-1h6a1 1 0 110 2H7a1 1 0 01-1-1zm1 3a1 1 0 100 2h6a1 1 0 100-2H7z" clipRule="evenodd" />
-              </svg>
-            </div>
-            <div>
-              <h3 className="text-lg font-semibold text-gray-900">{pdf.name}</h3>
-              <p className="text-sm text-gray-500">PDF Document</p>
-            </div>
+    <div
+      className={`fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[9999] ${className}`}
+    >
+      <div className="bg-white w-full h-full flex flex-col relative">
+        {/* Header Bar - Outside PDF viewer */}
+        <div className="flex items-center justify-between px-4 py-2 border-b border-gray-200 bg-white relative z-[10000]">
+          <div className="flex-1">
+            <p className="text-xs text-gray-500 italic">
+              Use the Download button to get a watermarked copy
+            </p>
           </div>
-          
           <div className="flex items-center space-x-2">
-            {/* Zoom Controls */}
-            <div className="flex items-center space-x-1 border border-gray-300 rounded-lg">
-              <button
-                onClick={handleZoomOut}
-                className="p-2 hover:bg-gray-100 rounded-l-lg transition-colors"
-                title="Zoom Out"
-              >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 12H4" />
-                </svg>
-              </button>
-              <span className="px-2 py-1 text-sm text-gray-600 min-w-[3rem] text-center">
-                {Math.round(scale * 100)}%
-              </span>
-              <button
-                onClick={handleZoomIn}
-                className="p-2 hover:bg-gray-100 rounded-r-lg transition-colors"
-                title="Zoom In"
-              >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                </svg>
-              </button>
-            </div>
-            
-            {/* Download Button */}
             <button
-              onClick={downloadPDF}
-              className="p-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors"
-              title="Download PDF"
+              onClick={handleDownload}
+              disabled={isWatermarking}
+              className="p-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg shadow-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-2"
+              title="Download PDF with Watermark"
             >
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-              </svg>
+              {isWatermarking ? (
+                <>
+                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                  <span className="text-sm">Adding Watermark...</span>
+                </>
+              ) : (
+                <>
+                  <svg
+                    className="w-5 h-5"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+                    />
+                  </svg>
+                  <span className="text-sm">Download</span>
+                </>
+              )}
             </button>
-            
-            {/* Close Button */}
             <button
               onClick={onClose}
-              className="p-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors"
+              className="p-2 bg-white hover:bg-gray-100 rounded-full shadow-lg transition-colors"
               title="Close"
             >
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              <svg
+                className="w-6 h-6 text-gray-700"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M6 18L18 6M6 6l12 12"
+                />
               </svg>
             </button>
           </div>
         </div>
 
         {/* PDF Content */}
-        <div className="flex-1 overflow-hidden relative">
+        <div className="flex-1 overflow-hidden relative min-h-0 w-full h-full">
           {isLoading && (
-            <div className="absolute inset-0 flex items-center justify-center bg-gray-50">
+            <div className="absolute inset-0 flex items-center justify-center bg-gray-50 z-50">
               <div className="flex flex-col items-center space-y-3">
                 <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
                 <p className="text-sm text-gray-600">Loading PDF...</p>
               </div>
             </div>
           )}
-          
+
           {error && (
-            <div className="absolute inset-0 flex items-center justify-center bg-gray-50">
+            <div className="absolute inset-0 flex items-center justify-center bg-gray-50 z-50">
               <div className="text-center">
                 <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                  <svg className="w-8 h-8 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  <svg
+                    className="w-8 h-8 text-red-600"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+                    />
                   </svg>
                 </div>
-                <p className="text-red-600 font-medium mb-2">Failed to load PDF</p>
+                <p className="text-red-600 font-medium mb-2">
+                  Failed to load PDF
+                </p>
                 <p className="text-gray-600 text-sm mb-4">{error}</p>
                 <button
                   onClick={() => window.location.reload()}
@@ -147,33 +194,22 @@ const PDFViewer: React.FC<PDFViewerProps> = ({ pdf, onClose, className = '' }) =
               </div>
             </div>
           )}
-          
+
           <iframe
             ref={iframeRef}
-            src={`${pdf.url}#toolbar=1&navpanes=1&scrollbar=1&zoom=${Math.round(scale * 100)}`}
+            src={`${pdf.url}#toolbar=0&navpanes=0&scrollbar=1`}
             className="w-full h-full border-0"
             onLoad={handleLoad}
             onError={handleError}
             title={pdf.name}
+            style={{
+              pointerEvents: "auto",
+            }}
+            // Add sandbox to limit iframe capabilities
+            sandbox="allow-same-origin allow-scripts"
+            // Disable download attribute
+            allow="fullscreen"
           />
-        </div>
-
-        {/* Footer */}
-        <div className="flex items-center justify-between p-4 border-t border-gray-200 bg-gray-50">
-          <div className="flex items-center space-x-4 text-sm text-gray-600">
-            <span>File size: {pdf.size ? `${(pdf.size / 1024 / 1024).toFixed(2)} MB` : 'Unknown'}</span>
-            <span>•</span>
-            <span>Last modified: {new Date(pdf.lastModified).toLocaleDateString()}</span>
-          </div>
-          
-          <div className="flex items-center space-x-2">
-            <button
-              onClick={handleResetZoom}
-              className="px-3 py-1 text-sm text-gray-600 hover:text-gray-900 hover:bg-gray-200 rounded transition-colors"
-            >
-              Reset Zoom
-            </button>
-          </div>
         </div>
       </div>
     </div>
