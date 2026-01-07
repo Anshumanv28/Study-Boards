@@ -29,7 +29,7 @@
         },
         {
           "key": "X-Frame-Options",
-          "value": "DENY"
+          "value": "SAMEORIGIN"
         },
         {
           "key": "X-XSS-Protection",
@@ -37,7 +37,7 @@
         },
         {
           "key": "Content-Security-Policy",
-          "value": "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://xbrtqfisytoamfvdmqkp.supabase.co; style-src 'self' 'unsafe-inline'; img-src 'self' data: https: blob:; font-src 'self' data:; connect-src 'self' https://xbrtqfisytoamfvdmqkp.supabase.co https://*.supabase.co https://*.storage.supabase.co; frame-src 'self' https://xbrtqfisytoamfvdmqkp.supabase.co; object-src 'none'; base-uri 'self'; form-action 'self';"
+          "value": "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://xbrtqfisytoamfvdmqkp.supabase.co; style-src 'self' 'unsafe-inline'; img-src 'self' data: https: blob:; font-src 'self' data:; connect-src 'self' https://xbrtqfisytoamfvdmqkp.supabase.co https://*.supabase.co https://*.storage.supabase.co; frame-src 'self' https://*.storage.supabase.co https://xbrtqfisytoamfvdmqkp.supabase.co blob:; object-src 'none'; base-uri 'self'; form-action 'self';"
         },
         {
           "key": "Referrer-Policy",
