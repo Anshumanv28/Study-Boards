@@ -9,20 +9,43 @@ interface PDFViewerProps {
   className?: string;
 }
 
+// Cache for PDF blob URLs - persists across component remounts
+const pdfBlobCache = new Map<string, string>();
+
 const PDFViewer: React.FC<PDFViewerProps> = ({
   pdf,
   onClose,
   className = "",
 }) => {
-  const [isLoading, setIsLoading] = useState(true);
+  // Initialize from cache if available to avoid loading state
+  const cachedBlobUrl = pdfBlobCache.get(pdf.url) || null;
+  const [isLoading, setIsLoading] = useState(!cachedBlobUrl);
   const [error, setError] = useState<string | null>(null);
   const [isWatermarking, setIsWatermarking] = useState(false);
-  const [pdfBlobUrl, setPdfBlobUrl] = useState<string | null>(null);
+  const [pdfBlobUrl, setPdfBlobUrl] = useState<string | null>(cachedBlobUrl);
   const iframeRef = useRef<HTMLIFrameElement>(null);
+  // Track which PDF URL we've loaded to prevent reloads
+  const loadedUrlRef = useRef<string | null>(cachedBlobUrl ? pdf.url : null);
 
   // Load PDF from Edge Function if needed
   useEffect(() => {
+    // Skip if we've already loaded this exact PDF URL
+    if (loadedUrlRef.current === pdf.url && pdfBlobUrl) {
+      return;
+    }
+
     const loadPdf = async () => {
+      // Check cache first before showing loading state
+      const cached = pdfBlobCache.get(pdf.url);
+      if (cached) {
+        // Use cached blob URL immediately - no loading needed
+        setPdfBlobUrl(cached);
+        setIsLoading(false);
+        loadedUrlRef.current = pdf.url;
+        return;
+      }
+
+      // Only show loading if we need to fetch
       setIsLoading(true);
       setError(null);
 
@@ -74,7 +97,11 @@ const PDFViewer: React.FC<PDFViewerProps> = ({
           // Create blob URL from response
           const blob = await response.blob();
           const blobUrl = URL.createObjectURL(blob);
+
+          // Cache the blob URL
+          pdfBlobCache.set(pdf.url, blobUrl);
           setPdfBlobUrl(blobUrl);
+          loadedUrlRef.current = pdf.url;
         } else {
           // Regular URL (non-PDF or fallback), use directly
           setPdfBlobUrl(null);
@@ -88,16 +115,19 @@ const PDFViewer: React.FC<PDFViewerProps> = ({
     };
 
     loadPdf();
-  }, [pdf.url]); // Remove pdfBlobUrl from dependencies to avoid infinite loops
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pdf.url]); // Only depend on pdf.url - cache check happens inside
 
-  // Cleanup blob URL on unmount or when URL changes
+  // Cleanup: Don't revoke blob URLs immediately - they're cached for reuse
+  // Only revoke when the component unmounts and the URL is no longer in cache
   useEffect(() => {
     return () => {
-      if (pdfBlobUrl) {
+      // Only revoke if this blob URL is not in the cache (shouldn't happen, but safety check)
+      if (pdfBlobUrl && !pdfBlobCache.has(pdf.url)) {
         URL.revokeObjectURL(pdfBlobUrl);
       }
     };
-  }, [pdfBlobUrl]);
+  }, [pdf.url, pdfBlobUrl]);
 
   // Prevent right-click and other download methods
   useEffect(() => {
@@ -214,12 +244,7 @@ const PDFViewer: React.FC<PDFViewerProps> = ({
     >
       <div className="bg-white w-full h-full flex flex-col relative">
         {/* Header Bar - Outside PDF viewer */}
-        <div className="flex items-center justify-between px-4 py-2 border-b border-gray-200 bg-white relative z-[10000]">
-          <div className="flex-1">
-            <p className="text-xs text-gray-500 italic">
-              Use the Download button to get a watermarked copy
-            </p>
-          </div>
+        <div className="flex items-center justify-end px-4 py-2 border-b border-gray-200 bg-white relative z-[10000]">
           <div className="flex items-center space-x-2">
             <button
               onClick={handleDownload}
