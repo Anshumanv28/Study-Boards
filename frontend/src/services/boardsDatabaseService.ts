@@ -16,7 +16,8 @@ function getEdgeFunctionUrl(): string {
 }
 
 /**
- * Convert PDF URL to Edge Function URL format for authenticated users
+ * Convert PDF URL to Edge Function URL format for watermarking
+ * All PDFs are watermarked via Edge Function
  */
 async function convertToWatermarkedUrl(
   pdfUrl: string | null
@@ -24,19 +25,9 @@ async function convertToWatermarkedUrl(
   if (!pdfUrl) return null;
 
   try {
-    // Check if user is authenticated
-    const {
-      data: { session },
-    } = await supabase.auth.getSession();
-
-    if (session) {
-      // Return Edge Function URL structure (will be handled by PDFViewer)
-      const edgeFunctionUrl = getEdgeFunctionUrl();
-      return `edge-function:${edgeFunctionUrl}:${pdfUrl}`;
-    }
-
-    // Return null for unauthenticated users (they shouldn't access files)
-    return null;
+    // Always use Edge Function for watermarking
+    const edgeFunctionUrl = getEdgeFunctionUrl();
+    return `edge-function:${edgeFunctionUrl}:${pdfUrl}`;
   } catch (error) {
     console.error("Error converting to watermarked URL:", error);
     return null;
@@ -305,8 +296,8 @@ class BoardsDatabaseService {
   }
 
   /**
-   * Get content with user progress (for authenticated users)
-   * PDF URLs are converted to Edge Function URLs for watermarking
+   * Get content with user progress
+   * PDF URLs are converted to Edge Function URLs for watermarking (all PDFs are watermarked)
    */
   async getContentWithProgress(
     topicName: string,
@@ -315,20 +306,14 @@ class BoardsDatabaseService {
     try {
       const content = await this.getContentByTopic(topicName);
 
-      if (!userId) {
-        // For unauthenticated users, return content but without PDF URLs
-        return content.map((item) => ({
-          ...item,
-          progress: null,
-          watermarkedPdfUrl: null,
-        }));
+      // Get all progress for this user (if authenticated)
+      let progressMap = new Map<number, UserProgress>();
+      if (userId) {
+        const progressList = await this.getUserProgressAll(userId);
+        progressMap = new Map(progressList.map((p) => [p.content_id, p]));
       }
 
-      // Get all progress for this user
-      const progressList = await this.getUserProgressAll(userId);
-      const progressMap = new Map(progressList.map((p) => [p.content_id, p]));
-
-      // Convert PDF URLs to watermarked URLs for authenticated users
+      // Convert PDF URLs to watermarked URLs (all PDFs go through Edge Function)
       const contentWithProgress = await Promise.all(
         content.map(async (item) => {
           const watermarkedPdfUrl =

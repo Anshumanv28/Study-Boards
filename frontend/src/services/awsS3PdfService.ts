@@ -7,7 +7,6 @@ import {
   GetObjectCommand,
 } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
-import { supabase } from "../lib/supabase";
 
 export interface S3File {
   name: string;
@@ -246,25 +245,21 @@ class AWSS3PDFService {
 
   /**
    * Get signed URL for a file
-   * For authenticated users, returns Edge Function URL for watermarked PDFs
+   * For PDFs, returns Edge Function URL for watermarking
+   * For other files, returns regular signed URL
    */
-  private async getSignedUrl(key: string, useWatermark: boolean = true): Promise<string> {
+  private async getSignedUrl(
+    key: string,
+    useWatermark: boolean = true
+  ): Promise<string> {
     try {
-      // Check if user is authenticated and watermarking is requested
-      if (useWatermark) {
-        const {
-          data: { session },
-        } = await supabase.auth.getSession();
-
-        if (session) {
-          // Return Edge Function URL structure (will be handled by PDFViewer)
-          // We'll return a special URL format that PDFViewer can recognize
-          const edgeFunctionUrl = this.getEdgeFunctionUrl();
-          return `edge-function:${edgeFunctionUrl}:${key}`;
-        }
+      // For PDFs, always use Edge Function for watermarking
+      if (useWatermark && (key.endsWith(".pdf") || key.endsWith(".PDF"))) {
+        const edgeFunctionUrl = this.getEdgeFunctionUrl();
+        return `edge-function:${edgeFunctionUrl}:${key}`;
       }
 
-      // Fallback to regular signed URL for unauthenticated users or when watermarking is disabled
+      // For non-PDF files, return regular signed URL
       const command = new GetObjectCommand({
         Bucket: this.BUCKET_NAME,
         Key: key,
@@ -305,19 +300,69 @@ class AWSS3PDFService {
 
   /**
    * Parse Edge Function URL to get function URL and S3 key
+   * Format: edge-function:FUNCTION_URL:S3_KEY_OR_URL
+   * Since URLs contain colons (https://), we need to find where the function URL ends
    */
-  parseEdgeFunctionUrl(url: string): { functionUrl: string; s3Key: string } | null {
+  parseEdgeFunctionUrl(
+    url: string
+  ): { functionUrl: string; s3Key: string } | null {
     if (!this.isEdgeFunctionUrl(url)) {
       return null;
     }
-    const parts = url.replace("edge-function:", "").split(":");
-    if (parts.length !== 2) {
-      return null;
+
+    // Remove the prefix
+    const content = url.replace("edge-function:", "");
+
+    // Find the end of the function URL by looking for "/watermark-pdf"
+    // The function URL should end with this path, followed by :, then the PDF URL/key
+    const watermarkPdfIndex = content.indexOf("/watermark-pdf");
+    if (watermarkPdfIndex !== -1) {
+      const functionUrlEnd = watermarkPdfIndex + "/watermark-pdf".length;
+      // The separator should be right after the function URL
+      if (functionUrlEnd < content.length && content[functionUrlEnd] === ":") {
+        return {
+          functionUrl: content.substring(0, functionUrlEnd),
+          s3Key: content.substring(functionUrlEnd + 1),
+        };
+      }
     }
-    return {
-      functionUrl: parts[0],
-      s3Key: parts[1],
-    };
+
+    // Fallback: Try to find where the first URL ends and the second begins
+    // Look for pattern: https://...something...:https:// or https://...something...:http://
+    // This finds the colon that separates two URLs
+    const urlPattern = /(https?:\/\/[^:]+):(https?:\/\/.+)/;
+    const match = content.match(urlPattern);
+    if (match && match.index !== undefined) {
+      // Find the colon that separates the two URLs
+      // The first URL ends before the second URL starts
+      const firstUrlEnd = match.index + match[1].length;
+      if (content[firstUrlEnd] === ":") {
+        return {
+          functionUrl: content.substring(0, firstUrlEnd),
+          s3Key: content.substring(firstUrlEnd + 1),
+        };
+      }
+    }
+
+    // Another fallback: if the content has two "http" occurrences, split between them
+    const firstHttp = content.indexOf("http");
+    if (firstHttp !== -1) {
+      const secondHttp = content.indexOf("http", firstHttp + 4);
+      if (secondHttp !== -1) {
+        // The separator should be right before the second "http"
+        const separatorIndex = secondHttp - 1;
+        if (separatorIndex > 0 && content[separatorIndex] === ":") {
+          return {
+            functionUrl: content.substring(0, separatorIndex),
+            s3Key: content.substring(separatorIndex + 1),
+          };
+        }
+      }
+    }
+
+    console.error("Could not parse Edge Function URL:", url);
+    console.error("Content:", content);
+    return null;
   }
 
   /**

@@ -27,32 +27,34 @@ const PDFViewer: React.FC<PDFViewerProps> = ({
       setError(null);
 
       try {
-        // Check if this is an Edge Function URL
+        // Check if this is an Edge Function URL (all PDFs should use Edge Function)
         if (awsS3PdfService.isEdgeFunctionUrl(pdf.url)) {
           const parsed = awsS3PdfService.parseEdgeFunctionUrl(pdf.url);
           if (!parsed) {
             throw new Error("Invalid Edge Function URL format");
           }
 
-          // Get authentication token
+          // Get authentication token (optional - Edge Function works without auth)
           const {
             data: { session },
           } = await supabase.auth.getSession();
 
-          if (!session) {
-            throw new Error("User must be authenticated to view PDFs");
-          }
+          // Determine if parsed.s3Key is a URL or an S3 key path
+          const isUrl =
+            parsed.s3Key.startsWith("http://") ||
+            parsed.s3Key.startsWith("https://");
 
           // Fetch watermarked PDF from Edge Function
           const response = await fetch(parsed.functionUrl, {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
-              Authorization: `Bearer ${session.access_token}`,
+              Authorization: session ? `Bearer ${session.access_token}` : "",
               apikey: process.env.REACT_APP_SUPABASE_ANON_KEY || "",
             },
             body: JSON.stringify({
-              pdfUrl: parsed.s3Key,
+              // Send as pdfUrl if it's a URL, otherwise as s3Key
+              ...(isUrl ? { pdfUrl: parsed.s3Key } : { s3Key: parsed.s3Key }),
               watermarkText:
                 process.env.REACT_APP_WATERMARK_TEXT ||
                 "StudyBoards - Confidential",
@@ -74,7 +76,7 @@ const PDFViewer: React.FC<PDFViewerProps> = ({
           const blobUrl = URL.createObjectURL(blob);
           setPdfBlobUrl(blobUrl);
         } else {
-          // Regular URL, use directly
+          // Regular URL (non-PDF or fallback), use directly
           setPdfBlobUrl(null);
         }
       } catch (err: any) {
@@ -86,7 +88,7 @@ const PDFViewer: React.FC<PDFViewerProps> = ({
     };
 
     loadPdf();
-  }, [pdf.url]);
+  }, [pdf.url]); // Remove pdfBlobUrl from dependencies to avoid infinite loops
 
   // Cleanup blob URL on unmount or when URL changes
   useEffect(() => {
@@ -202,7 +204,9 @@ const PDFViewer: React.FC<PDFViewerProps> = ({
   };
 
   // Determine the URL to use for the iframe
-  const iframeSrc = pdfBlobUrl || pdf.url;
+  // Only use blob URL or regular URL (never use edge-function URL directly in iframe)
+  const iframeSrc =
+    pdfBlobUrl || (awsS3PdfService.isEdgeFunctionUrl(pdf.url) ? null : pdf.url);
 
   return (
     <div
@@ -323,8 +327,8 @@ const PDFViewer: React.FC<PDFViewerProps> = ({
               style={{
                 pointerEvents: "auto",
               }}
-              // Add sandbox to limit iframe capabilities
-              sandbox="allow-same-origin allow-scripts"
+              // Remove sandbox for blob URLs - they need full permissions to display PDFs
+              // Sandbox restrictions prevent blob URLs from working properly in Chrome
               // Disable download attribute
               allow="fullscreen"
             />

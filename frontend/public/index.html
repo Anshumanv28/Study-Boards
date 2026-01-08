@@ -9,6 +9,11 @@
       name="description"
       content="Study Boards - Your comprehensive study platform"
     />
+    <!-- CSP for local development - allows blob URLs for PDF viewing -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://xbrtqfisytoamfvdmqkp.supabase.co https://*.supabase.co http://localhost:* ws://localhost:*; style-src 'self' 'unsafe-inline'; img-src 'self' data: https: blob:; font-src 'self' data:; connect-src 'self' https://xbrtqfisytoamfvdmqkp.supabase.co https://*.supabase.co https://*.storage.supabase.co https://*.functions.supabase.co http://localhost:* ws://localhost:*; frame-src 'self' https://*.storage.supabase.co https://xbrtqfisytoamfvdmqkp.supabase.co https://*.functions.supabase.co blob: data: http://localhost:*; child-src 'self' blob: data: https:; object-src 'none'; base-uri 'self'; form-action 'self';"
+    />
     <link rel="apple-touch-icon" href="%PUBLIC_URL%/logo192.png" />
     <link rel="manifest" href="%PUBLIC_URL%/manifest.json" />
     <title>Study Boards</title>
