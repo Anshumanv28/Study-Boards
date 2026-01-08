@@ -31,16 +31,9 @@ const AppContent: React.FC = () => {
         {/* Public routes */}
         <Route path="/login" element={<Login />} />
         <Route path="/auth/callback" element={<AuthCallback />} />
+        <Route path="/" element={<Home />} />
         
         {/* Protected routes */}
-        <Route 
-          path="/" 
-          element={
-            <ProtectedRoute>
-              <Home />
-            </ProtectedRoute>
-          } 
-        />
         <Route 
           path="/about" 
           element={
@@ -50,10 +43,10 @@ const AppContent: React.FC = () => {
           } 
         />
         
-        {/* Redirect any unknown routes to home (if authenticated) or login */}
+        {/* Redirect any unknown routes to home */}
         <Route 
           path="*" 
-          element={user ? <Navigate to="/" replace /> : <Navigate to="/login" replace />} 
+          element={<Navigate to="/" replace />} 
         />
       </Routes>
     </>

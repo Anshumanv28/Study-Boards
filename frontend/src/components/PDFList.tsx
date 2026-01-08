@@ -13,6 +13,7 @@ import { useAuth } from "../contexts/AuthContext";
 import { safeOpenUrl } from "../utils/urlValidation";
 import { downloadWithWatermark } from "../services/watermarkService";
 import PDFViewer from "./PDFViewer";
+import { Link } from "react-router-dom";
 
 interface PDFListProps {
   topic: string;
@@ -44,6 +45,15 @@ const PDFList: React.FC<PDFListProps> = ({
   }, [topic, useDatabase, user]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const loadFiles = async () => {
+    // Check authentication first
+    if (!user) {
+      setLoading(false);
+      setError(null);
+      setFiles([]);
+      setDbContent([]);
+      return;
+    }
+
     try {
       setLoading(true);
       setError(null);
@@ -55,10 +65,11 @@ const PDFList: React.FC<PDFListProps> = ({
           await boardsDatabaseService.getContentWithProgress(topic, userId);
 
         // Convert database content to file format for display
+        // Use watermarked URL if available, otherwise use original URL
         const contentFiles: ContentWithProgress[] = contentWithProgress.map(
           (item) => ({
             ...item,
-            fileUrl: item.pdf_url || item.video_url || undefined,
+            fileUrl: (item as any).watermarkedPdfUrl || item.pdf_url || item.video_url || undefined,
           })
         );
 
@@ -111,17 +122,29 @@ const PDFList: React.FC<PDFListProps> = ({
   );
 
   const handleFileClick = async (file: S3File) => {
+    // Check authentication
+    if (!user) {
+      // This shouldn't happen since files are hidden, but just in case
+      return;
+    }
+
     if (file.type === "pdf") {
       setSelectedPDF(file as S3PDFFile);
     } else {
       // For DOCX files, download with watermark
       try {
         setWatermarkingFile(file.name);
-        await downloadWithWatermark(file.url, file.name, "docx");
-      } catch (error) {
+        // Extract S3 key if available
+        const s3Key = file.key;
+        await downloadWithWatermark(file.url, file.name, "docx", undefined, s3Key);
+      } catch (error: any) {
         console.error("Error downloading DOCX with watermark:", error);
-        // Fallback to direct download if watermarking fails
-        safeOpenUrl(file.url, "_blank");
+        if (error.message?.includes("Unauthorized") || error.message?.includes("authenticated")) {
+          setError("Please log in to download files.");
+        } else {
+          // Fallback to direct download if watermarking fails (shouldn't happen for authenticated users)
+          safeOpenUrl(file.url, "_blank");
+        }
       } finally {
         setWatermarkingFile(null);
       }
@@ -129,15 +152,24 @@ const PDFList: React.FC<PDFListProps> = ({
   };
 
   const handleDbContentClick = (content: ContentWithProgress) => {
+    // Check authentication
+    if (!user) {
+      // This shouldn't happen since files are hidden, but just in case
+      return;
+    }
+
     if (content.content_type === "pdf" || content.content_type === "both") {
-      if (content.pdf_url) {
+      // Use watermarked URL if available, otherwise use original URL
+      const pdfUrl = (content as any).watermarkedPdfUrl || content.pdf_url;
+      
+      if (pdfUrl) {
         // Create a file-like object for the PDF viewer
         const pdfFile: S3PDFFile = {
           name: content.pdf_filename || content.title,
-          url: content.pdf_url,
+          url: pdfUrl,
           size: 0,
           lastModified: content.created_at,
-          key: content.pdf_url,
+          key: content.pdf_url || pdfUrl, // Keep original URL as key for download, fallback to pdfUrl
           type: "pdf",
           extension: "pdf",
         };
@@ -196,6 +228,59 @@ const PDFList: React.FC<PDFListProps> = ({
             >
               Try Again
             </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Show login prompt if user is not authenticated
+  if (!user) {
+    return (
+      <div className={`space-y-4 ${className}`}>
+        <div className="flex items-center justify-center py-12">
+          <div className="text-center max-w-md">
+            <div className="w-20 h-20 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-6">
+              <svg
+                className="w-10 h-10 text-blue-600"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"
+                />
+              </svg>
+            </div>
+            <h3 className="text-xl font-semibold text-gray-900 mb-2">
+              Authentication Required
+            </h3>
+            <p className="text-gray-600 mb-6">
+              Please log in to view resources in this topic. All files are
+              watermarked and require authentication to access.
+            </p>
+            <Link
+              to="/login"
+              className="inline-flex items-center px-6 py-3 bg-blue-600 text-white font-medium rounded-lg hover:bg-blue-700 transition-colors"
+            >
+              <svg
+                className="w-5 h-5 mr-2"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M11 16l-4-4m0 0l4-4m-4 4h14m-5 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h7a3 3 0 013 3v1"
+                />
+              </svg>
+              Log In
+            </Link>
           </div>
         </div>
       </div>

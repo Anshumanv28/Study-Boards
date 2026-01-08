@@ -1,6 +1,48 @@
 // Service for interacting with Boards database tables
 import { supabase } from "../lib/supabase";
 
+/**
+ * Get Edge Function URL for watermarking
+ */
+function getEdgeFunctionUrl(): string {
+  const functionsUrl =
+    process.env.REACT_APP_SUPABASE_FUNCTIONS_URL ||
+    process.env.REACT_APP_SUPABASE_URL?.replace(
+      ".supabase.co",
+      ".functions.supabase.co"
+    ) ||
+    "https://xbrtqfisytoamfvdmqkp.functions.supabase.co";
+  return `${functionsUrl}/watermark-pdf`;
+}
+
+/**
+ * Convert PDF URL to Edge Function URL format for authenticated users
+ */
+async function convertToWatermarkedUrl(
+  pdfUrl: string | null
+): Promise<string | null> {
+  if (!pdfUrl) return null;
+
+  try {
+    // Check if user is authenticated
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+
+    if (session) {
+      // Return Edge Function URL structure (will be handled by PDFViewer)
+      const edgeFunctionUrl = getEdgeFunctionUrl();
+      return `edge-function:${edgeFunctionUrl}:${pdfUrl}`;
+    }
+
+    // Return null for unauthenticated users (they shouldn't access files)
+    return null;
+  } catch (error) {
+    console.error("Error converting to watermarked URL:", error);
+    return null;
+  }
+}
+
 // TypeScript types matching the database schema
 export interface BoardsTopic {
   id: number;
@@ -264,26 +306,45 @@ class BoardsDatabaseService {
 
   /**
    * Get content with user progress (for authenticated users)
+   * PDF URLs are converted to Edge Function URLs for watermarking
    */
   async getContentWithProgress(
     topicName: string,
     userId: string | null
-  ): Promise<(BoardsContent & { progress: UserProgress | null })[]> {
+  ): Promise<(BoardsContent & { progress: UserProgress | null; watermarkedPdfUrl?: string | null })[]> {
     try {
       const content = await this.getContentByTopic(topicName);
 
       if (!userId) {
-        return content.map((item) => ({ ...item, progress: null }));
+        // For unauthenticated users, return content but without PDF URLs
+        return content.map((item) => ({
+          ...item,
+          progress: null,
+          watermarkedPdfUrl: null,
+        }));
       }
 
       // Get all progress for this user
       const progressList = await this.getUserProgressAll(userId);
       const progressMap = new Map(progressList.map((p) => [p.content_id, p]));
 
-      return content.map((item) => ({
-        ...item,
-        progress: progressMap.get(item.id) || null,
-      }));
+      // Convert PDF URLs to watermarked URLs for authenticated users
+      const contentWithProgress = await Promise.all(
+        content.map(async (item) => {
+          const watermarkedPdfUrl =
+            item.pdf_url && (item.content_type === "pdf" || item.content_type === "both")
+              ? await convertToWatermarkedUrl(item.pdf_url)
+              : null;
+
+          return {
+            ...item,
+            progress: progressMap.get(item.id) || null,
+            watermarkedPdfUrl,
+          };
+        })
+      );
+
+      return contentWithProgress;
     } catch (error) {
       console.error("Error fetching content with progress:", error);
       return [];

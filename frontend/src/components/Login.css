@@ -150,6 +150,7 @@
   box-shadow: 0 4px 12px var(--btn-shadow);
 }
 
+
 .submit-btn:disabled {
   opacity: 0.6;
   cursor: not-allowed;
@@ -247,7 +248,7 @@
 .toggle-btn {
   background: none;
   border: none;
-  color: var(--primary-medium);
+  color: #000000;
   font-weight: 600;
   cursor: pointer;
   margin-left: 0.5rem;
@@ -255,7 +256,7 @@
 }
 
 .toggle-btn:hover {
-  color: var(--primary-dark);
+  color: #ffffff;
   text-decoration: underline;
 }
 

@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from "react";
-import { S3PDFFile } from "../services/awsS3PdfService";
+import { S3PDFFile, awsS3PdfService } from "../services/awsS3PdfService";
 import { downloadWithWatermark } from "../services/watermarkService";
+import { supabase } from "../lib/supabase";
 
 interface PDFViewerProps {
   pdf: S3PDFFile;
@@ -16,12 +17,85 @@ const PDFViewer: React.FC<PDFViewerProps> = ({
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isWatermarking, setIsWatermarking] = useState(false);
+  const [pdfBlobUrl, setPdfBlobUrl] = useState<string | null>(null);
   const iframeRef = useRef<HTMLIFrameElement>(null);
 
+  // Load PDF from Edge Function if needed
   useEffect(() => {
-    setIsLoading(true);
-    setError(null);
+    const loadPdf = async () => {
+      setIsLoading(true);
+      setError(null);
+
+      try {
+        // Check if this is an Edge Function URL
+        if (awsS3PdfService.isEdgeFunctionUrl(pdf.url)) {
+          const parsed = awsS3PdfService.parseEdgeFunctionUrl(pdf.url);
+          if (!parsed) {
+            throw new Error("Invalid Edge Function URL format");
+          }
+
+          // Get authentication token
+          const {
+            data: { session },
+          } = await supabase.auth.getSession();
+
+          if (!session) {
+            throw new Error("User must be authenticated to view PDFs");
+          }
+
+          // Fetch watermarked PDF from Edge Function
+          const response = await fetch(parsed.functionUrl, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${session.access_token}`,
+              apikey: process.env.REACT_APP_SUPABASE_ANON_KEY || "",
+            },
+            body: JSON.stringify({
+              pdfUrl: parsed.s3Key,
+              watermarkText:
+                process.env.REACT_APP_WATERMARK_TEXT ||
+                "StudyBoards - Confidential",
+            }),
+          });
+
+          if (!response.ok) {
+            if (response.status === 401) {
+              throw new Error("Unauthorized. Please log in to view PDFs.");
+            }
+            const errorData = await response.json().catch(() => ({}));
+            throw new Error(
+              errorData.error || `Failed to load PDF: ${response.statusText}`
+            );
+          }
+
+          // Create blob URL from response
+          const blob = await response.blob();
+          const blobUrl = URL.createObjectURL(blob);
+          setPdfBlobUrl(blobUrl);
+        } else {
+          // Regular URL, use directly
+          setPdfBlobUrl(null);
+        }
+      } catch (err: any) {
+        console.error("Error loading PDF:", err);
+        setError(err.message || "Failed to load PDF. Please try again.");
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    loadPdf();
   }, [pdf.url]);
+
+  // Cleanup blob URL on unmount or when URL changes
+  useEffect(() => {
+    return () => {
+      if (pdfBlobUrl) {
+        URL.revokeObjectURL(pdfBlobUrl);
+      }
+    };
+  }, [pdfBlobUrl]);
 
   // Prevent right-click and other download methods
   useEffect(() => {
@@ -78,14 +152,57 @@ const PDFViewer: React.FC<PDFViewerProps> = ({
   const handleDownload = async () => {
     try {
       setIsWatermarking(true);
-      await downloadWithWatermark(pdf.url, pdf.name, "pdf");
-    } catch (error) {
+
+      // Extract original URL or S3 key for download
+      let originalUrl = pdf.url;
+      let s3Key: string | undefined;
+
+      if (awsS3PdfService.isEdgeFunctionUrl(pdf.url)) {
+        const parsed = awsS3PdfService.parseEdgeFunctionUrl(pdf.url);
+        if (parsed) {
+          // The s3Key might be a full URL or an S3 key path
+          originalUrl = parsed.s3Key;
+          // If it's a URL, use it as pdfUrl; if it's an S3 key, use it as s3Key
+          if (
+            parsed.s3Key.startsWith("http://") ||
+            parsed.s3Key.startsWith("https://")
+          ) {
+            // It's a URL, don't set s3Key
+            s3Key = undefined;
+          } else {
+            // It's an S3 key path
+            s3Key = parsed.s3Key;
+            originalUrl = ""; // Clear URL since we're using S3 key
+          }
+        }
+      } else if (pdf.key) {
+        // Use the key (might be URL or S3 key path)
+        if (pdf.key.startsWith("http://") || pdf.key.startsWith("https://")) {
+          originalUrl = pdf.key;
+          s3Key = undefined;
+        } else {
+          s3Key = pdf.key;
+          originalUrl = ""; // Clear URL since we're using S3 key
+        }
+      }
+
+      await downloadWithWatermark(
+        originalUrl || pdf.url,
+        pdf.name,
+        "pdf",
+        undefined,
+        s3Key
+      );
+    } catch (error: any) {
       console.error("Error downloading PDF with watermark:", error);
-      setError("Failed to download PDF. Please try again.");
+      setError(error.message || "Failed to download PDF. Please try again.");
     } finally {
       setIsWatermarking(false);
     }
   };
+
+  // Determine the URL to use for the iframe
+  const iframeSrc = pdfBlobUrl || pdf.url;
 
   return (
     <div
@@ -195,21 +312,23 @@ const PDFViewer: React.FC<PDFViewerProps> = ({
             </div>
           )}
 
-          <iframe
-            ref={iframeRef}
-            src={`${pdf.url}#toolbar=0&navpanes=0&scrollbar=1`}
-            className="w-full h-full border-0"
-            onLoad={handleLoad}
-            onError={handleError}
-            title={pdf.name}
-            style={{
-              pointerEvents: "auto",
-            }}
-            // Add sandbox to limit iframe capabilities
-            sandbox="allow-same-origin allow-scripts"
-            // Disable download attribute
-            allow="fullscreen"
-          />
+          {iframeSrc && (
+            <iframe
+              ref={iframeRef}
+              src={`${iframeSrc}#toolbar=0&navpanes=0&scrollbar=1`}
+              className="w-full h-full border-0"
+              onLoad={handleLoad}
+              onError={handleError}
+              title={pdf.name}
+              style={{
+                pointerEvents: "auto",
+              }}
+              // Add sandbox to limit iframe capabilities
+              sandbox="allow-same-origin allow-scripts"
+              // Disable download attribute
+              allow="fullscreen"
+            />
+          )}
         </div>
       </div>
     </div>

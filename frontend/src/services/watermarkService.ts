@@ -1,5 +1,6 @@
 // Watermarking service for PDF and DOCX files
 import { PDFDocument, rgb, degrees } from "pdf-lib";
+import { supabase } from "../lib/supabase";
 
 const DEFAULT_WATERMARK_TEXT = "StudyBoards - Confidential";
 
@@ -8,6 +9,57 @@ const DEFAULT_WATERMARK_TEXT = "StudyBoards - Confidential";
  */
 function getWatermarkText(): string {
   return process.env.REACT_APP_WATERMARK_TEXT || DEFAULT_WATERMARK_TEXT;
+}
+
+/**
+ * Get Supabase Edge Function URL for watermarking
+ */
+function getEdgeFunctionUrl(): string {
+  const functionsUrl =
+    process.env.REACT_APP_SUPABASE_FUNCTIONS_URL ||
+    process.env.REACT_APP_SUPABASE_URL?.replace(
+      ".supabase.co",
+      ".functions.supabase.co"
+    ) ||
+    "https://xbrtqfisytoamfvdmqkp.functions.supabase.co";
+  return `${functionsUrl}/watermark-pdf`;
+}
+
+/**
+ * Get watermarked PDF URL from Edge Function
+ * @param pdfUrl - Original PDF URL
+ * @param s3Key - Optional S3 key (alternative to pdfUrl)
+ * @param watermarkText - Optional custom watermark text
+ * @returns URL to watermarked PDF or null if not authenticated
+ */
+export async function getWatermarkedPdfUrl(
+  pdfUrl?: string,
+  s3Key?: string,
+  watermarkText?: string
+): Promise<string | null> {
+  try {
+    // Check if user is authenticated
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+
+    if (!session) {
+      console.warn("User not authenticated, cannot get watermarked PDF URL");
+      return null;
+    }
+
+    // Get Edge Function URL
+    const edgeFunctionUrl = getEdgeFunctionUrl();
+
+    // For iframe/viewing, we need to return a URL that can be used directly
+    // Since Edge Functions require POST with body, we'll need to use a different approach
+    // For now, return null and let the caller handle it differently
+    // The actual implementation will use fetch in PDFViewer
+    return edgeFunctionUrl;
+  } catch (error) {
+    console.error("Error getting watermarked PDF URL:", error);
+    return null;
+  }
 }
 
 /**
@@ -135,59 +187,104 @@ export async function addWatermarkToDOCX(
 }
 
 /**
- * Download a file with watermark applied
+ * Download a file with watermark applied using Edge Function
  * @param fileUrl - URL of the file to download
  * @param fileName - Name for the downloaded file
  * @param fileType - Type of file ('pdf' or 'docx')
  * @param watermarkText - Optional custom watermark text
+ * @param s3Key - Optional S3 key (alternative to fileUrl)
  */
 export async function downloadWithWatermark(
   fileUrl: string,
   fileName: string,
   fileType: "pdf" | "docx",
-  watermarkText?: string
+  watermarkText?: string,
+  s3Key?: string
 ): Promise<void> {
   try {
-    // Fetch the file
-    const response = await fetch(fileUrl);
-    if (!response.ok) {
-      throw new Error(`Failed to fetch file: ${response.statusText}`);
+    // Check if user is authenticated
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+
+    if (!session) {
+      throw new Error("User must be authenticated to download watermarked files");
     }
 
-    const arrayBuffer = await response.arrayBuffer();
-    const fileBytes = new Uint8Array(arrayBuffer);
-
-    let watermarkedBytes: Uint8Array;
-    let downloadFileName = fileName;
-
-    // Apply watermark based on file type
+    // For PDFs, use Edge Function
     if (fileType === "pdf") {
-      watermarkedBytes = await addWatermarkToPDF(fileBytes, watermarkText);
+      const edgeFunctionUrl = getEdgeFunctionUrl();
+      const response = await fetch(edgeFunctionUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.access_token}`,
+          apikey: process.env.REACT_APP_SUPABASE_ANON_KEY || "",
+        },
+        body: JSON.stringify({
+          pdfUrl: fileUrl,
+          s3Key: s3Key,
+          watermarkText: watermarkText || getWatermarkText(),
+        }),
+      });
+
+      if (!response.ok) {
+        if (response.status === 401) {
+          throw new Error("Unauthorized. Please log in to download files.");
+        }
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(
+          errorData.error || `Failed to watermark PDF: ${response.statusText}`
+        );
+      }
+
+      const watermarkedPdfBytes = await response.arrayBuffer();
+
+      // Create blob and download
+      const blob = new Blob([watermarkedPdfBytes], {
+        type: "application/pdf",
+      });
+
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = fileName;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
     } else if (fileType === "docx") {
-      // For DOCX, we'll try to handle it, but it may not be fully implemented
-      watermarkedBytes = await addWatermarkToDOCX(fileBytes, watermarkText);
-      // If DOCX watermarking isn't implemented, we might want to convert to PDF
-      // For now, we'll download the original DOCX
+      // For DOCX, fallback to client-side watermarking (not fully implemented)
+      // Or fetch and apply client-side
+      const response = await fetch(fileUrl);
+      if (!response.ok) {
+        throw new Error(`Failed to fetch file: ${response.statusText}`);
+      }
+
+      const arrayBuffer = await response.arrayBuffer();
+      const fileBytes = new Uint8Array(arrayBuffer);
+
+      // For now, DOCX watermarking is not implemented
+      // Return original file
+      const watermarkedBytes = await addWatermarkToDOCX(fileBytes, watermarkText);
+
+      // Create blob and download
+      const blob = new Blob([watermarkedBytes as BlobPart], {
+        type:
+          "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      });
+
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = fileName;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
     } else {
       throw new Error(`Unsupported file type: ${fileType}`);
     }
-
-    // Create blob and download
-    const blob = new Blob([watermarkedBytes as BlobPart], {
-      type:
-        fileType === "pdf"
-          ? "application/pdf"
-          : "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-    });
-
-    const url = window.URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = downloadFileName;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    window.URL.revokeObjectURL(url);
   } catch (error) {
     console.error("Error downloading file with watermark:", error);
     throw error;

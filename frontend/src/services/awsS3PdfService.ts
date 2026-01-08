@@ -7,6 +7,7 @@ import {
   GetObjectCommand,
 } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
+import { supabase } from "../lib/supabase";
 
 export interface S3File {
   name: string;
@@ -103,7 +104,10 @@ class AWSS3PDFService {
           const fileType = extension === "pdf" ? "pdf" : "docx";
 
           try {
-            const signedUrl = await this.getSignedUrl(obj.Key);
+            // For PDFs, use watermarking for authenticated users
+            // For DOCX, use regular signed URL (watermarking not fully implemented)
+            const useWatermark = fileType === "pdf";
+            const signedUrl = await this.getSignedUrl(obj.Key, useWatermark);
 
             files.push({
               name: fileName,
@@ -242,9 +246,25 @@ class AWSS3PDFService {
 
   /**
    * Get signed URL for a file
+   * For authenticated users, returns Edge Function URL for watermarked PDFs
    */
-  private async getSignedUrl(key: string): Promise<string> {
+  private async getSignedUrl(key: string, useWatermark: boolean = true): Promise<string> {
     try {
+      // Check if user is authenticated and watermarking is requested
+      if (useWatermark) {
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
+
+        if (session) {
+          // Return Edge Function URL structure (will be handled by PDFViewer)
+          // We'll return a special URL format that PDFViewer can recognize
+          const edgeFunctionUrl = this.getEdgeFunctionUrl();
+          return `edge-function:${edgeFunctionUrl}:${key}`;
+        }
+      }
+
+      // Fallback to regular signed URL for unauthenticated users or when watermarking is disabled
       const command = new GetObjectCommand({
         Bucket: this.BUCKET_NAME,
         Key: key,
@@ -260,6 +280,44 @@ class AWSS3PDFService {
       // Fallback to public URL
       return `${this.ENDPOINT}/${this.BUCKET_NAME}/${key}`;
     }
+  }
+
+  /**
+   * Get Edge Function URL for watermarking
+   */
+  private getEdgeFunctionUrl(): string {
+    const functionsUrl =
+      process.env.REACT_APP_SUPABASE_FUNCTIONS_URL ||
+      process.env.REACT_APP_SUPABASE_URL?.replace(
+        ".supabase.co",
+        ".functions.supabase.co"
+      ) ||
+      "https://xbrtqfisytoamfvdmqkp.functions.supabase.co";
+    return `${functionsUrl}/watermark-pdf`;
+  }
+
+  /**
+   * Check if a URL is an Edge Function URL
+   */
+  isEdgeFunctionUrl(url: string): boolean {
+    return url.startsWith("edge-function:");
+  }
+
+  /**
+   * Parse Edge Function URL to get function URL and S3 key
+   */
+  parseEdgeFunctionUrl(url: string): { functionUrl: string; s3Key: string } | null {
+    if (!this.isEdgeFunctionUrl(url)) {
+      return null;
+    }
+    const parts = url.replace("edge-function:", "").split(":");
+    if (parts.length !== 2) {
+      return null;
+    }
+    return {
+      functionUrl: parts[0],
+      s3Key: parts[1],
+    };
   }
 
   /**
